@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+output/
+*.bin
+*.chd
+*.zip
+build/
+dist/
+*.spec
+*.exe
+!chdman.exe

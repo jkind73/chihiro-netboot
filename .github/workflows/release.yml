@@ -1,0 +1,56 @@
+name: release
+
+on:
+  push:
+    tags: ["[0-9]*"]
+  workflow_dispatch:
+
+jobs:
+  # Verify the OS-native DES backend on every platform.
+  selftest:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python chihiro-netboot.py --selftest
+
+  # Windows executable, built from the open source in this repo.
+  # Attached straight to the release together with chdman.exe and the
+  # plain script for macOS/Linux.
+  release:
+    needs: selftest
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          pip install pyinstaller
+          pyinstaller --onefile --name chihiro-netboot chihiro-netboot.py
+
+      - name: Test the executable
+        shell: cmd
+        run: dist\chihiro-netboot.exe --selftest
+
+      - name: Stage assets
+        shell: bash
+        run: cp dist/chihiro-netboot.exe .
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            chihiro-netboot.exe
+            chdman.exe
+            chihiro-netboot.py
