@@ -7,9 +7,12 @@ Convert MAME Sega Chihiro dumps into playable netboot images.
 From a standard MAME ROM set (which you must provide yourself):
 
 1. **The game's `.zip`**, e.g. `hotd3.zip` (contains the decryption key)
-2. **The game's `.chd`**, e.g. `hotd3/gdx-0001.chd` (the GD-ROM dump)
+2. **The game's disc**, either of:
+   - a MAME `.chd`, e.g. `hotd3/gdx-0001.chd`
+   - a Redump `.cue` with its `.bin` tracks beside it
 
-The conversion uses **chdman** from MAME. On Windows it is provided on
+**chdman** is only needed for `.chd` files. A Redump cue/bin set is read
+directly, with nothing else to install. On Windows chdman is provided on
 the Releases page next to the tool; on macOS/Linux install it with your
 package manager:
 
@@ -57,6 +60,7 @@ Or point it at a folder, or at one game explicitly:
 ```
 python3 chihiro-netboot.py /path/to/games
 python3 chihiro-netboot.py hotd3/gdx-0001.chd hotd3.zip
+python3 chihiro-netboot.py "hotd3/Disc (Track 1).cue" hotd3.zip
 ```
 
 ## Output

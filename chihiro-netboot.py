@@ -5,10 +5,12 @@
 #     chihiro-netboot                          (auto-detect all games in current dir)
 #     chihiro-netboot /path/to/games           (auto-detect all games in a folder)
 #     chihiro-netboot game.chd game.zip        (convert one game)
+#     chihiro-netboot game.cue game.zip        (same, from a Redump cue/bin set)
 #     chihiro-netboot --list game.chd game.zip
 #
 # What you need (from a standard MAME set):
-#     1. The game's .chd file   (e.g. hotd3/gdx-0001.chd)
+#     1. The game's disc: a .chd (e.g. hotd3/gdx-0001.chd), or the .cue of a
+#        Redump cue/bin set with its .bin tracks beside it
 #     2. The game's .zip file   (e.g. hotd3.zip)
 #
 # What you get:
@@ -444,6 +446,48 @@ def extract_chd(chd_path):
     raise RuntimeError("chdman ran but no track files were created.")
 
 
+def read_cue(cue_path):
+    # Read a Redump-style .cue and return its data track, without chdman.
+    #
+    # A Redump GD-ROM dump is a .cue next to one .bin per track. The cue
+    # names each file and the mode of the track inside it:
+    #
+    #     FILE "... (Track 3).bin" BINARY
+    #       TRACK 03 MODE1/2352
+    #
+    # Returns (track_path, None, sector_size); None because there is no
+    # temporary directory to clean up afterwards.
+    #
+    base = os.path.dirname(os.path.abspath(cue_path))
+    tracks = []
+    current = None
+
+    with open(cue_path, "r", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if line.upper().startswith("FILE "):
+                name = line[5:].rsplit(" ", 1)[0].strip().strip('"')
+                current = os.path.join(base, name)
+            elif line.upper().startswith("TRACK ") and current:
+                parts = line.split()
+                if len(parts) >= 3 and parts[1].isdigit():
+                    tracks.append((int(parts[1]), current, parts[2].upper()))
+                current = None
+
+    data = [t for t in tracks if t[2].startswith("MODE") and os.path.exists(t[1])]
+    if not data:
+        raise RuntimeError(f"No data track found next to {os.path.basename(cue_path)}. "
+                           "The .bin files must sit beside the .cue.")
+
+    # Track 3 is the high-density data track of a GD-ROM; otherwise take the
+    # biggest data track, which is the same choice extract_chd falls back to.
+    chosen = next((t for t in data if t[0] == 3), None)
+    if chosen is None:
+        chosen = max(data, key=lambda t: os.path.getsize(t[1]))
+
+    return chosen[1], None, 2048 if chosen[2].endswith("/2048") else 2352
+
+
 MODE1_SYNC = bytes([0x00] + [0xFF] * 10 + [0x00])
 
 
@@ -456,10 +500,14 @@ def load_track_data(chd_path):
     #
     # Returns (iso_data_bytes, tmp_dir, lba_offset).
     #
-    if not chd_path.lower().endswith(".chd"):
-        raise ValueError(f"Expected a .chd file, got: {os.path.basename(chd_path)}")
+    lower = chd_path.lower()
+    if lower.endswith(".cue"):
+        track_path, tmp_dir, sector_size = read_cue(chd_path)
+    elif lower.endswith(".chd"):
+        track_path, tmp_dir, sector_size = extract_chd(chd_path)
+    else:
+        raise ValueError(f"Expected a .chd or .cue file, got: {os.path.basename(chd_path)}")
 
-    track_path, tmp_dir, sector_size = extract_chd(chd_path)
     file_size = os.path.getsize(track_path)
 
     if sector_size == 2048:
@@ -695,19 +743,21 @@ def find_games(directory="."):
     for game_name, zip_path in sorted(zips.items()):
         gdrom = None
 
-        # MAME layout: gamename/something.chd
+        # MAME layout: gamename/something.chd, or a Redump gamename/*.cue
         subdir = os.path.join(directory, game_name)
         if os.path.isdir(subdir):
-            for f in os.listdir(subdir):
-                if f.lower().endswith(".chd"):
+            for f in sorted(os.listdir(subdir)):
+                if f.lower().endswith((".chd", ".cue")):
                     gdrom = os.path.join(subdir, f)
                     break
 
-        # Flat layout: gamename.chd
+        # Flat layout: gamename.chd or gamename.cue
         if not gdrom:
-            candidate = os.path.join(directory, game_name + ".chd")
-            if os.path.exists(candidate):
-                gdrom = candidate
+            for ext in (".chd", ".cue"):
+                candidate = os.path.join(directory, game_name + ext)
+                if os.path.exists(candidate):
+                    gdrom = candidate
+                    break
 
         if gdrom:
             pairs.append((game_name, zip_path, gdrom))
@@ -850,7 +900,8 @@ def convert_game(game_name, zip_path, gdrom_path, output_dir="output",
 
         return output_path
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -865,12 +916,14 @@ def main():
             "  %(prog)s                              auto-detect and convert all games\n"
             "  %(prog)s /path/to/games                auto-detect games in a folder\n"
             "  %(prog)s hotd3.chd hotd3.zip           convert one game (explicit files)\n"
+            "  %(prog)s hotd3.cue hotd3.zip           same, from a Redump cue/bin set\n"
             "  %(prog)s --list game.chd game.zip      list files on disc\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("chd", nargs="?",
-                        help="MAME .chd file for the game, or a folder to scan")
+                        help="the game's disc: a MAME .chd or a Redump .cue, "
+                             "or a folder to scan")
     parser.add_argument("zip", nargs="?", help="MAME ROM .zip for the game")
     parser.add_argument("-o", "--output", help="output directory (default: output/)")
     parser.add_argument("-l", "--list", action="store_true", help="list disc contents and exit")
@@ -885,7 +938,7 @@ def main():
 
     print()
     print("  chihiro-netboot")
-    print("  MAME CHD to FATX netboot image converter")
+    print("  GD-ROM (.chd or Redump .cue) to FATX netboot image converter")
     print("  " + "-" * 42)
 
     output_dir = args.output or "output"
@@ -893,7 +946,7 @@ def main():
     # --- Explicit mode: both arguments provided ---
 
     if args.chd and args.zip:
-        if args.chd.lower().endswith(".zip") and args.zip.lower().endswith(".chd"):
+        if args.chd.lower().endswith(".zip") and args.zip.lower().endswith((".chd", ".cue")):
             args.chd, args.zip = args.zip, args.chd
         game_name = os.path.splitext(os.path.basename(args.zip))[0]
         result = convert_game(game_name, args.zip, args.chd, output_dir, args.list)
@@ -913,7 +966,7 @@ def main():
     if args.chd:
         if not os.path.isdir(args.chd):
             parser.error(f"'{args.chd}' is not a folder; to convert one game, "
-                         "pass both the .chd and the .zip.")
+                         "pass both the disc (.chd or .cue) and the .zip.")
         scan_dir = args.chd
         if not args.output:
             output_dir = os.path.join(scan_dir, "output")
