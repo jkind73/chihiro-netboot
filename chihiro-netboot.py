@@ -479,11 +479,11 @@ def read_cue(cue_path):
         raise RuntimeError(f"No data track found next to {os.path.basename(cue_path)}. "
                            "The .bin files must sit beside the .cue.")
 
-    # Track 3 is the high-density data track of a GD-ROM; otherwise take the
-    # biggest data track, which is the same choice extract_chd falls back to.
-    chosen = next((t for t in data if t[0] == 3), None)
-    if chosen is None:
-        chosen = max(data, key=lambda t: os.path.getsize(t[1]))
+    # Take the biggest data track rather than track 3 by name: on a GD-ROM the
+    # high-density track is the game and dwarfs the rest, and going by size
+    # also covers a plain CD-ROM and any disc that orders its tracks
+    # differently. It is the same choice extract_chd falls back to.
+    chosen = max(data, key=lambda t: os.path.getsize(t[1]))
 
     return chosen[1], None, 2048 if chosen[2].endswith("/2048") else 2352
 
