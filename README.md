@@ -1,10 +1,10 @@
 # chihiro-netboot
 
-Convert MAME Sega Chihiro dumps into playable netboot images.
+Convert MAME/Redump Sega Chihiro dumps into playable netboot images.
 
 ## What you need
 
-From a standard MAME ROM set (which you must provide yourself):
+From a standard MAME/Redump ROM set (which you must provide yourself):
 
 1. **The game's `.zip`**, e.g. `hotd3.zip` (contains the decryption key)
 2. **The game's disc**, either of:
