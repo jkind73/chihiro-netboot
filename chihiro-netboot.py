@@ -28,6 +28,7 @@ import argparse
 import array
 import shutil
 import time
+import threading
 import ctypes
 import ctypes.util
 from ctypes import (POINTER, byref, c_char_p, c_int, c_size_t, c_ulong,
@@ -409,8 +410,19 @@ def extract_chd(chd_path):
     proc = subprocess.Popen(
         [chdman, "extractcd", "-i", chd_path,
          "-o", cue_path, "-ob", bin_pattern],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
+
+    output_chunks = []
+    def drain_output():
+        while True:
+            chunk = proc.stdout.read(512)
+            if not chunk:
+                break
+            output_chunks.append(chunk)
+
+    drain_thread = threading.Thread(target=drain_output, daemon=True)
+    drain_thread.start()
 
     spinner = "|/-\\"
     tick = 0
@@ -419,12 +431,13 @@ def extract_chd(chd_path):
         tick += 1
         time.sleep(0.15)
 
-    _, stderr = proc.communicate()
+    drain_thread.join()
     print("\r  Running chdman... done" + " " * 10)
 
     if proc.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise RuntimeError(f"chdman failed: {stderr.strip()}")
+        stderr_msg = "".join(output_chunks).strip()
+        raise RuntimeError(f"chdman failed: {stderr_msg}")
 
     # Detect sector format from CUE
     sector_size = 2352
